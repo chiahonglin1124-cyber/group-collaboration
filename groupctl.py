@@ -703,6 +703,184 @@ def record_review(person_id, change_id, verdict, summary):
     print("Review published successfully!")
 
 
+def run_tests(person_id):
+    import unittest
+    import io
+
+    print("=== Group Collaboration TEST ===")
+
+    # 確認小組成員
+    member_file = MEMBERS_DIR / f"{person_id}.json"
+
+    if not member_file.is_file():
+        raise ValueError("Member not found.")
+
+    member = load_json(member_file)
+
+    if member.get("person_id") != person_id:
+        raise ValueError("Member ID mismatch.")
+
+    # 確認 Git 工作分支
+    branch = git("branch", "--show-current")
+
+    if not branch.startswith(f"people/{person_id}/"):
+        raise ValueError("Use your personal work branch.")
+
+    # 確保測試的版本已經 Commit
+    if git("status", "--porcelain"):
+        raise ValueError(
+            "Please commit your changes before testing."
+        )
+
+    commit = git("rev-parse", "HEAD")
+    print("Branch:", branch)
+    print("Commit:", commit)
+
+    # 1. Python 語法檢查
+    print("\nRunning syntax check...")
+
+    syntax_command = [
+        sys.executable,
+        "-m",
+        "py_compile",
+        str(ROOT / "groupctl.py")
+    ]
+
+    syntax_result = subprocess.run(
+        syntax_command,
+        cwd=ROOT,
+        capture_output=True,
+        text=True
+    )
+
+    syntax_ok = syntax_result.returncode == 0
+
+    print("Syntax:", "PASS" if syntax_ok else "FAIL")
+
+    if not syntax_ok:
+        print(syntax_result.stderr)
+
+    # 2. 執行單元測試
+    print("\nRunning unit tests...")
+
+    tests_dir = ROOT / "tests"
+    passed = 0
+    failed = 0
+    skipped = 0
+    tests_found = 0
+    test_error = False
+
+    if tests_dir.is_dir():
+        output = io.StringIO()
+
+        try:
+            loader = unittest.TestLoader()
+
+            suite = loader.discover(
+                start_dir=str(tests_dir),
+                pattern="test_*.py"
+            )
+
+            tests_found = suite.countTestCases()
+
+            runner = unittest.TextTestRunner(
+                stream=output,
+                verbosity=2
+            )
+
+            result = runner.run(suite)
+
+            failed = (
+                len(result.failures) +
+                len(result.errors)
+            )
+            skipped = len(result.skipped)
+
+            passed = (
+                result.testsRun - failed - skipped
+            )
+
+            print(output.getvalue())
+
+        except Exception as error:
+            test_error = True
+            print("Test execution error:", error)
+
+    else:
+        print("Tests directory not found.")
+
+    # 3. 判斷自動化測試結果
+    if not syntax_ok or failed > 0 or test_error:
+        automated_result = "fail"
+
+    elif tests_found == 0:
+        automated_result = "partial"
+
+    elif passed > 0 and skipped > 0:
+        automated_result = "partial"
+
+    else:
+        automated_result = "pass"
+
+    if tests_found == 0:
+        summary = (
+            "Python syntax checked. "
+            "No unit tests were discovered."
+        )
+    else:
+        summary = (
+            f"Syntax: {'pass' if syntax_ok else 'fail'}. "
+            f"Unit tests: {passed} passed, "
+            f"{failed} failed, {skipped} skipped."
+        )
+
+    print("\n=== Test Summary ===")
+    print("Result:", automated_result)
+    print("Passed:", passed)
+    print("Failed:", failed)
+    print("Skipped:", skipped)
+    print("Summary:", summary)
+
+    # 4. 建立正式 test_result 事件
+    path, event = make_event(
+        "test_result",
+        person_id,
+        {
+            "scope": "current_branch",
+            "commit": commit,
+            "commands": [
+                "python -m py_compile groupctl.py",
+                "Python unittest discovery: tests/test_*.py"
+            ],
+            "automated_result": automated_result,
+            "passed": passed,
+            "failed": failed,
+            "skipped": skipped,
+            "human_checks_required": [
+                "Verify collaboration with other members."
+            ],
+            "summary": summary
+        }
+    )
+
+    # 5. 發布測試結果
+    git("add", str(path.relative_to(ROOT)))
+
+    git(
+        "commit",
+        "-m",
+        f"Publish test result {event['event_id']}"
+    )
+
+    git("push", "origin", branch)
+
+    print("\n=== Test Result Published ===")
+    print("Event ID:", event["event_id"])
+    print("Commit tested:", commit)
+    print("Result:", automated_result)
+    print("Published successfully!")
+
+
 def main():
     if len(sys.argv) < 2:
         print("=== Group Collaboration Tool ===")
@@ -715,12 +893,19 @@ def main():
         print("  status")
         print("  rev <change_id>")
         print("  review <person_id> <change_id> <verdict> <summary>")
+        print("  test <person_id>")
         return
 
     command = sys.argv[1]
 
     try:
-        if command == "review":
+        if command == "test":
+            if len(sys.argv) != 3:
+                raise ValueError("Usage: test <person_id>")
+
+            run_tests(sys.argv[2])
+
+        elif command == "review":
             if len(sys.argv) < 6:
                 raise ValueError(
                     "Usage: review <person_id> "
@@ -773,6 +958,9 @@ def main():
                 sys.argv[2],
                 " ".join(sys.argv[3:])
             )
+
+        elif command == "group":
+            show_group()
 
         else:
             print("Unknown command:", command)
