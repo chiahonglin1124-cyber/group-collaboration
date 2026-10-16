@@ -29,7 +29,14 @@ def load_members():
 
     return members
 
+def show_group():
+    group = load_group()
 
+    print("=== Group Information ===")
+    print("Protocol Version:", group["protocol_version"])
+    print("Group ID:", group["group_id"])
+    print("Canonical Branch:", group["canonical_branch"])
+    print("Assignment File:", group["assignment_file"])
 def show_members():
     print("=== Group Members ===")
 
@@ -110,7 +117,10 @@ def main():
 
     command = sys.argv[1]
 
-    if command == "members":
+    if command == "group":
+        show_group()
+
+    elif command == "members":
         show_members()
 
     elif command == "finding":
