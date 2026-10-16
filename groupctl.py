@@ -218,6 +218,273 @@ def publish_change(person_id, summary):
     print("Published successfully!")
 
 
+def sync_group():
+    print("=== Group Synchronization ===")
+
+    # 1. 記錄目前的 Git 狀態
+    branch = git("branch", "--show-current")
+    commit = git("rev-parse", "HEAD")
+    dirty = bool(git("status", "--porcelain"))
+
+    print("Current branch:", branch)
+    print("Current commit:", commit[:12])
+    print("Uncommitted changes:", "Yes" if dirty else "No")
+
+    # 2. 取得 GitHub 最新資料
+    print("\nFetching remote updates...")
+    git("fetch", "origin", "--prune", "--tags")
+
+    group = load_group()
+    canonical = "origin/" + group["canonical_branch"]
+
+    # 3. 比較個人版本與 main
+    git("rev-parse", "--verify", canonical)
+
+    counts = git(
+        "rev-list", "--left-right", "--count",
+        f"HEAD...{canonical}"
+    ).split()
+
+    ahead, behind = map(int, counts)
+
+    print("\n=== Canonical Branch ===")
+    print("Canonical:", canonical)
+    print("Local-only commits:", ahead)
+    print("Canonical-only commits:", behind)
+
+    # 4. 找出所有遠端分支
+    refs = git(
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/remotes/origin"
+    ).splitlines()
+
+    # 5. 從遠端分支讀取事件
+    discovered = {}
+
+    for ref in refs:
+        paths = git(
+            "ls-tree", "-r", "--name-only",
+            ref, "--", ".group/events/"
+        ).splitlines()
+
+        for path in paths:
+            if not path.endswith(".json"):
+                continue
+
+            raw = git("show", f"{ref}:{path}")
+
+            try:
+                event = json.loads(raw)
+            except json.JSONDecodeError:
+                print("Invalid event JSON:", path)
+                continue
+
+            if event.get("group_id") != group["group_id"]:
+                continue
+
+            event_id = event.get("event_id")
+
+            if event_id:
+                discovered[event_id] = event
+
+    # 6. 讀取上一次同步紀錄
+    local_dir = GROUP_DIR / "local"
+    local_dir.mkdir(parents=True, exist_ok=True)
+
+    state_file = local_dir / "sync_state.json"
+    known_ids = set()
+
+    if state_file.exists():
+        state = load_json(state_file)
+        known_ids = set(state.get("seen_events", []))
+
+    new_ids = set(discovered) - known_ids
+
+    # 7. 顯示新的協作事件
+    print("\n=== New Collaboration Events ===")
+
+    if not new_ids:
+        print("No new events.")
+    else:
+        for event_id in sorted(new_ids):
+            event = discovered[event_id]
+
+            print("--------------------")
+            print("Event:", event_id)
+            print("Type:", event.get("event_type"))
+            print("Person:", event.get("person_id"))
+            print("Summary:", event.get("summary", "N/A"))
+
+            if "change_id" in event:
+                print("Change ID:", event["change_id"])
+
+    # 8. 儲存已讀取的事件 ID
+    state = {
+        "seen_events": sorted(discovered)
+    }
+
+    with open(state_file, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=4)
+        f.write("\n")
+
+    # 9. 提醒使用者是否需要整合
+    print("\n=== Sync Summary ===")
+    print("Total remote events:", len(discovered))
+    print("New events:", len(new_ids))
+
+    if behind > 0:
+        print("Canonical branch has new commits.")
+        print("Review before integrating them.")
+
+    if dirty:
+        print("Local changes were preserved.")
+
+    print("No branches were merged.")
+    print("Remote metadata sync completed.")
+
+def show_status():
+    print("=== Group Collaboration Status ===")
+
+    group = load_group()
+    branch = git("branch", "--show-current")
+    commit = git("rev-parse", "HEAD")
+    changes = git("status", "--porcelain")
+
+    print("\n=== Identity ===")
+    print("Group:", group["group_id"])
+    print("Current branch:", branch)
+    print("Current commit:", commit[:12])
+
+    print("\n=== Local Changes ===")
+    if changes:
+        print(changes)
+    else:
+        print("Working tree clean.")
+
+    print("\n=== Remote State ===")
+    try:
+        git("fetch", "origin", "--prune")
+
+        canonical = (
+            "origin/" + group["canonical_branch"]
+        )
+
+        canonical_commit = git(
+            "rev-parse", canonical
+        )
+
+        counts = git(
+            "rev-list",
+            "--left-right",
+            "--count",
+            f"HEAD...{canonical}"
+        ).split()
+
+        ahead, behind = map(int, counts)
+
+        print("Canonical:", canonical)
+        print("Canonical commit:", canonical_commit[:12])
+        print("Local-only commits:", ahead)
+        print("Canonical-only commits:", behind)
+
+    except RuntimeError as error:
+        print("Remote information unavailable:", error)
+        return
+
+    print("\n=== Members ===")
+    for member in load_members():
+        print(
+            member["person_id"],
+            "-",
+            member["display_name"]
+        )
+
+    print("\n=== Collaboration Events ===")
+
+    refs = git(
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/remotes/origin"
+    ).splitlines()
+
+    events = {}
+
+    for ref in refs:
+        paths = git(
+            "ls-tree",
+            "-r",
+            "--name-only",
+            ref,
+            "--",
+            ".group/events/"
+        ).splitlines()
+
+        for path in paths:
+            if not path.endswith(".json"):
+                continue
+
+            try:
+                event = json.loads(
+                    git("show", f"{ref}:{path}")
+                )
+            except (json.JSONDecodeError, RuntimeError):
+                continue
+
+            if event.get("group_id") != group["group_id"]:
+                continue
+
+            event_id = event.get("event_id")
+            if event_id:
+                events[event_id] = event
+
+    ordered = sorted(
+        events.values(),
+        key=lambda e: e.get("created_at", ""),
+        reverse=True
+    )
+
+    print("Total events:", len(ordered))
+
+    for event in ordered[:5]:
+        print("--------------------")
+        print("Type:", event.get("event_type", "unknown"))
+        print("Person:", event.get("person_id", "unknown"))
+        print("Summary:", event.get("summary", "N/A"))
+
+    print("\n=== Latest Test Result ===")
+    tests = [
+        e for e in ordered
+        if e.get("event_type") == "test_result"
+    ]
+
+    if tests:
+        latest = tests[0]
+        print("Result:", latest.get("automated_result", "unknown"))
+        print("Commit:", latest.get("commit", "unknown"))
+    else:
+        print("No published test results found.")
+
+    print("\n=== Reported Blockers ===")
+    blockers = [
+        e for e in ordered
+        if e.get("event_type") == "blocker"
+    ]
+
+    print("Reported blocker events:", len(blockers))
+    if blockers:
+        print("Review blockers to determine if still active.")
+
+    print("\n=== Recommended Next Action ===")
+    if changes:
+        print("Review and commit local changes when ready.")
+    elif behind > 0:
+        print("Run SYNC and review canonical updates.")
+    else:
+        print("Continue development or review pending changes.")
+
+    print("\nStatus check complete. No merge performed.")
+
 def main():
     if len(sys.argv) < 2:
         print("Available commands:")
@@ -230,7 +497,13 @@ def main():
     command = sys.argv[1]
 
     try:
-        if command == "group":
+        if command == "status":
+            show_status()
+
+        elif command == "sync":
+            sync_group()
+
+        elif command == "group":
             show_group()
 
         elif command == "members":
