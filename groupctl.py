@@ -880,6 +880,149 @@ def run_tests(person_id):
     print("Result:", automated_result)
     print("Published successfully!")
 
+def integration_check(change_id):
+    print("=== Integration Preflight Check ===")
+
+    # 1. 確認本機狀態
+    branch = git("branch", "--show-current")
+
+    if branch == load_group()["canonical_branch"]:
+        raise ValueError(
+            "Do not integrate directly into main."
+        )
+
+    if git("status", "--porcelain"):
+        raise ValueError(
+            "Commit or clean local changes first."
+        )
+
+    print("Target branch:", branch)
+
+    # 2. 取得 GitHub 最新資訊
+    print("\nFetching remote changes...")
+    git("fetch", "origin", "--prune")
+
+    # 3. 搜尋 change_published 事件
+    group = load_group()
+
+    refs = git(
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/remotes/origin"
+    ).splitlines()
+
+    found = None
+
+    for ref in refs:
+        paths = git(
+            "ls-tree", "-r", "--name-only",
+            ref, "--", ".group/events/"
+        ).splitlines()
+
+        for path in paths:
+            if not path.endswith(".json"):
+                continue
+
+            try:
+                event = json.loads(
+                    git("show", f"{ref}:{path}")
+                )
+            except (RuntimeError, json.JSONDecodeError):
+                continue
+
+            if (
+                event.get("group_id") == group["group_id"]
+                and event.get("event_type") == "change_published"
+                and event.get("change_id") == change_id
+            ):
+                found = event
+                break
+
+        if found:
+            break
+
+    if found is None:
+        raise ValueError(
+            f"Published change not found: {change_id}"
+        )
+
+    # 4. 驗證 Git Commit
+    source_branch = found["branch"]
+    source_commit = found["commit"]
+
+    if source_branch == branch:
+        raise ValueError(
+            "Source and target are the same branch."
+        )
+
+    git(
+        "cat-file", "-e",
+        f"{source_commit}^{{commit}}"
+    )
+
+    git(
+        "merge-base", "--is-ancestor",
+        source_commit,
+        f"refs/remotes/origin/{source_branch}"
+    )
+
+    # 5. 檢查是否已整合
+    result = subprocess.run(
+        [
+            "git", "merge-base", "--is-ancestor",
+            source_commit, "HEAD"
+        ],
+        cwd=ROOT
+    )
+
+    if result.returncode == 0:
+        print("This commit is already incorporated.")
+        return
+
+    if result.returncode != 1:
+        raise RuntimeError(
+            "Unable to determine integration state."
+        )
+
+    # 6. 顯示修改資訊
+    print("\n=== Change Information ===")
+    print("Change ID:", change_id)
+    print("Author:", found["person_id"])
+    print("Summary:", found.get("summary", "N/A"))
+    print("Source branch:", source_branch)
+    print("Source commit:", source_commit)
+    print("Target branch:", branch)
+
+    print("\nInterface changes:")
+    print(found.get("interface_changes", []))
+
+    print("\nKnown issues:")
+    print(found.get("known_issues", []))
+
+    # 7. 顯示程式差異
+    print("\n=== Git Diff ===")
+
+    diff = git(
+        "show",
+        "--stat",
+        "--format=short",
+        source_commit
+    )
+
+    print(diff)
+
+    # 8. 確認工作是否可繼續
+    print("\n=== Integration Checklist ===")
+    print("1. Review the actual source changes.")
+    print("2. Check interface compatibility.")
+    print("3. Examine any known issues.")
+    print("4. Identify relevant automated tests.")
+    print("5. Resolve conflicts only when safe.")
+
+    print("\nPreflight check completed.")
+    print("No merge has been performed.")
+
+
 
 def main():
     if len(sys.argv) < 2:
@@ -894,14 +1037,25 @@ def main():
         print("  rev <change_id>")
         print("  review <person_id> <change_id> <verdict> <summary>")
         print("  test <person_id>")
+        print("  int-check <change_id>")
         return
 
     command = sys.argv[1]
 
     try:
-        if command == "test":
+        if command == "int-check":
             if len(sys.argv) != 3:
-                raise ValueError("Usage: test <person_id>")
+                raise ValueError(
+                    "Usage: int-check <change_id>"
+                )
+
+            integration_check(sys.argv[2])
+
+        elif command == "test":
+            if len(sys.argv) != 3:
+                raise ValueError(
+                    "Usage: test <person_id>"
+                )
 
             run_tests(sys.argv[2])
 
@@ -921,7 +1075,9 @@ def main():
 
         elif command == "rev":
             if len(sys.argv) != 3:
-                raise ValueError("Usage: rev <change_id>")
+                raise ValueError(
+                    "Usage: rev <change_id>"
+                )
 
             review_change(sys.argv[2])
 
@@ -959,14 +1115,15 @@ def main():
                 " ".join(sys.argv[3:])
             )
 
-        elif command == "group":
-            show_group()
-
         else:
             print("Unknown command:", command)
 
-    except (ValueError, RuntimeError, OSError) as e:
-        print("Error:", e)
+    except (
+        ValueError,
+        RuntimeError,
+        OSError
+    ) as error:
+        print("Error:", error)
         sys.exit(1)
 
 
