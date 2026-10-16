@@ -485,19 +485,262 @@ def show_status():
 
     print("\nStatus check complete. No merge performed.")
 
+def review_change(change_id):
+    print("=== Review Published Change ===")
+    print("Looking for:", change_id)
+
+    # 取得遠端最新資料
+    git("fetch", "origin", "--prune")
+
+    group = load_group()
+    refs = git(
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/remotes/origin"
+    ).splitlines()
+
+    found = None
+
+    # 搜尋所有遠端分支的協作事件
+    for ref in refs:
+        paths = git(
+            "ls-tree", "-r", "--name-only",
+            ref, "--", ".group/events/"
+        ).splitlines()
+
+        for path in paths:
+            if not path.endswith(".json"):
+                continue
+
+            try:
+                event = json.loads(
+                    git("show", f"{ref}:{path}")
+                )
+            except (RuntimeError, json.JSONDecodeError):
+                continue
+
+            if (
+                event.get("group_id") == group["group_id"]
+                and event.get("event_type") == "change_published"
+                and event.get("change_id") == change_id
+            ):
+                found = event
+                break
+
+        if found:
+            break
+
+    if found is None:
+        print("Change not found:", change_id)
+        return
+
+    # 顯示發布資訊
+    print("\n=== Published Change ===")
+    print("Change ID:", found["change_id"])
+    print("Author:", found["person_id"])
+    print("Summary:", found.get("summary", "N/A"))
+    print("Branch:", found["branch"])
+    print("Commit:", found["commit"])
+    print("Known issues:", found.get("known_issues", []))
+    print(
+        "Interface changes:",
+        found.get("interface_changes", [])
+    )
+
+    # 確認參照的 Commit 存在
+    commit = found["commit"]
+    branch = found["branch"]
+
+    git("cat-file", "-e", f"{commit}^{{commit}}")
+
+    # 確認該 Commit 屬於所宣告的遠端分支
+    git(
+        "merge-base", "--is-ancestor",
+        commit, f"refs/remotes/origin/{branch}"
+    )
+
+    # 顯示真正的 Git Diff
+    print("\n=== Actual Git Diff ===")
+
+    diff = git(
+        "show",
+        "--no-ext-diff",
+        "--format=fuller",
+        "--stat",
+        "--patch",
+        commit
+    )
+
+    print(diff)
+
+    print("\n=== Review Checklist ===")
+    print("1. Does the code match the stated purpose?")
+    print("2. Are there possible bugs?")
+    print("3. Are tests sufficient?")
+    print("4. Are interface changes compatible?")
+    print("5. Are important cases missing?")
+
+    print("\nNo code was merged.")
+    print("Review inspection completed.")
+
+
+def record_review(person_id, change_id, verdict, summary):
+    allowed = {
+        "accept",
+        "accept_with_changes",
+        "reject",
+        "needs_more_evidence"
+    }
+
+    if verdict not in allowed:
+        raise ValueError("Invalid review verdict.")
+
+    # 確認審查者是已登記成員
+    member_file = MEMBERS_DIR / f"{person_id}.json"
+
+    if not member_file.is_file():
+        raise ValueError("Reviewer not found.")
+
+    member = load_json(member_file)
+
+    if member.get("person_id") != person_id:
+        raise ValueError("Reviewer ID mismatch.")
+
+    # 必須在個人工作分支上發布
+    branch = git("branch", "--show-current")
+
+    if not branch.startswith(f"people/{person_id}/"):
+        raise ValueError("Not on reviewer's personal branch.")
+
+    if git("status", "--porcelain"):
+        raise ValueError("Commit or clean local changes first.")
+
+    # 搜尋真正發布過的 Change ID
+    git("fetch", "origin", "--prune")
+
+    refs = git(
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/remotes/origin"
+    ).splitlines()
+
+    group = load_group()
+    target = None
+
+    for ref in refs:
+        paths = git(
+            "ls-tree", "-r", "--name-only",
+            ref, "--", ".group/events/"
+        ).splitlines()
+
+        for path in paths:
+            if not path.endswith(".json"):
+                continue
+
+            try:
+                event = json.loads(
+                    git("show", f"{ref}:{path}")
+                )
+            except (RuntimeError, json.JSONDecodeError):
+                continue
+
+            if (
+                event.get("group_id") == group["group_id"]
+                and event.get("event_type") == "change_published"
+                and event.get("change_id") == change_id
+            ):
+                target = event
+                break
+
+        if target:
+            break
+
+    if target is None:
+        raise ValueError("Published Change ID not found.")
+
+    # 確認目標 Commit 存在
+    git(
+        "cat-file", "-e",
+        f"{target['commit']}^{{commit}}"
+    )
+
+    # 建立審查事件
+    # 未實際執行測試，因此 tests_run 保持空清單
+    path, event = make_event(
+        "review",
+        person_id,
+        {
+            "change_id": change_id,
+            "verdict": verdict,
+            "summary": summary,
+            "issues": [],
+            "tests_run": []
+        }
+    )
+
+    # 關聯原本的發布事件
+    event["related_events"] = [target["event_id"]]
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(event, f, indent=4, ensure_ascii=False)
+        f.write("\n")
+
+    # 只提交這份審查事件
+    git("add", str(path.relative_to(ROOT)))
+
+    git(
+        "commit", "-m",
+        f"Review change {change_id}: {verdict}"
+    )
+
+    git("push", "origin", branch)
+
+    print("\n=== Review Published ===")
+    print("Change ID:", change_id)
+    print("Verdict:", verdict)
+    print("Event ID:", event["event_id"])
+    print("Reviewer:", person_id)
+    print("Review published successfully!")
+
+
 def main():
     if len(sys.argv) < 2:
+        print("=== Group Collaboration Tool ===")
         print("Available commands:")
         print("  group")
         print("  members")
         print("  finding <person_id> <summary>")
         print("  publish <person_id> <summary>")
+        print("  sync")
+        print("  status")
+        print("  rev <change_id>")
+        print("  review <person_id> <change_id> <verdict> <summary>")
         return
 
     command = sys.argv[1]
 
     try:
-        if command == "status":
+        if command == "review":
+            if len(sys.argv) < 6:
+                raise ValueError(
+                    "Usage: review <person_id> "
+                    "<change_id> <verdict> <summary>"
+                )
+
+            record_review(
+                sys.argv[2],
+                sys.argv[3],
+                sys.argv[4],
+                " ".join(sys.argv[5:])
+            )
+
+        elif command == "rev":
+            if len(sys.argv) != 3:
+                raise ValueError("Usage: rev <change_id>")
+
+            review_change(sys.argv[2])
+
+        elif command == "status":
             show_status()
 
         elif command == "sync":
