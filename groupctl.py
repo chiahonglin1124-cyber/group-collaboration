@@ -1023,6 +1023,144 @@ def integration_check(change_id):
     print("No merge has been performed.")
 
 
+def verify_integration(change_id):
+    print("=== Integration Verification ===")
+
+    # 取得最新遠端資料
+    git("fetch", "origin", "--prune")
+
+    group = load_group()
+    current_branch = git("branch", "--show-current")
+
+    # 尋找發布事件
+    refs = git(
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/remotes/origin"
+    ).splitlines()
+
+    target = None
+
+    for ref in refs:
+        paths = git(
+            "ls-tree", "-r", "--name-only",
+            ref, "--", ".group/events/"
+        ).splitlines()
+
+        for path in paths:
+            if not path.endswith(".json"):
+                continue
+
+            try:
+                event = json.loads(
+                    git("show", f"{ref}:{path}")
+                )
+            except (RuntimeError, json.JSONDecodeError):
+                continue
+
+            if (
+                event.get("event_type") == "change_published"
+                and event.get("group_id") == group["group_id"]
+                and event.get("change_id") == change_id
+            ):
+                target = event
+                break
+
+        if target is not None:
+            break
+
+    if target is None:
+        raise ValueError("Change ID not found.")
+
+    source_commit = target["commit"]
+    source_branch = target["branch"]
+
+    # 驗證來源 Commit
+    git("cat-file", "-e", f"{source_commit}^{{commit}}")
+
+    git(
+        "merge-base", "--is-ancestor",
+        source_commit,
+        f"refs/remotes/origin/{source_branch}"
+    )
+
+    # 檢查來源是否已整合
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor",
+         source_commit, "HEAD"],
+        cwd=ROOT,
+        capture_output=True
+    )
+
+    if result.returncode == 1:
+        print("Change has NOT been integrated.")
+        return
+
+    if result.returncode != 0:
+        raise RuntimeError("Cannot verify integration history.")
+
+    print("Change ID:", change_id)
+    print("Source:", source_branch)
+    print("Target:", current_branch)
+    print("Source commit:", source_commit)
+    print("Integration history: VERIFIED")
+
+    # 執行語法檢查
+    python_files = [str(ROOT / "groupctl.py")]
+
+    demo_file = ROOT / "src" / "demo.py"
+
+    if demo_file.exists():
+        python_files.append(str(demo_file))
+
+    syntax = subprocess.run(
+        [sys.executable, "-m", "py_compile",
+         *python_files],
+        cwd=ROOT
+    )
+
+    # 執行單元測試
+    tests = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-p",
+            "test_*.py",
+            "-v"
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True
+    )
+
+    print("\n=== Test Results ===")
+    print(tests.stdout)
+    print(tests.stderr)
+
+    # 不允許零個測試冒充通過
+    tests_found = (
+        "Ran 0 tests" not in tests.stderr
+        and "Ran 0 tests" not in tests.stdout
+        and "Ran " in (tests.stdout + tests.stderr)
+    )
+
+    if (
+        syntax.returncode == 0
+        and tests.returncode == 0
+        and tests_found
+    ):
+        print("\nAutomated verification: PASS")
+    else:
+        print("\nAutomated verification: FAIL")
+
+    print("Semantic review: still requires judgment.")
+    print("No merge or commit performed.")
+
+
 
 def main():
     if len(sys.argv) < 2:
@@ -1038,12 +1176,21 @@ def main():
         print("  review <person_id> <change_id> <verdict> <summary>")
         print("  test <person_id>")
         print("  int-check <change_id>")
+        print("  int-verify <change_id>")
         return
 
     command = sys.argv[1]
 
     try:
-        if command == "int-check":
+        if command == "int-verify":
+            if len(sys.argv) != 3:
+                raise ValueError(
+                    "Usage: int-verify <change_id>"
+                )
+
+            verify_integration(sys.argv[2])
+
+        elif command == "int-check":
             if len(sys.argv) != 3:
                 raise ValueError(
                     "Usage: int-check <change_id>"
@@ -1053,9 +1200,7 @@ def main():
 
         elif command == "test":
             if len(sys.argv) != 3:
-                raise ValueError(
-                    "Usage: test <person_id>"
-                )
+                raise ValueError("Usage: test <person_id>")
 
             run_tests(sys.argv[2])
 
@@ -1075,9 +1220,7 @@ def main():
 
         elif command == "rev":
             if len(sys.argv) != 3:
-                raise ValueError(
-                    "Usage: rev <change_id>"
-                )
+                raise ValueError("Usage: rev <change_id>")
 
             review_change(sys.argv[2])
 
@@ -1115,6 +1258,9 @@ def main():
                 " ".join(sys.argv[3:])
             )
 
+        elif command == "group":
+            show_group()
+
         else:
             print("Unknown command:", command)
 
@@ -1129,3 +1275,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
