@@ -1,33 +1,23 @@
 # Group Final Candidate
 
-Generated: 2026-10-30T07:16:27+00:00
 Group: G-01
 Canonical branch: main
-Canonical commit: d52ff50a17eed5372d60237a8dd171a8e33ba799
-Current branch: people/P-01/groupctl
-Current commit: 25341715559895b87cd0d0dc48fac598d90d8290
-
-## Branch Comparison
-- Current-only commits: 17
-- Canonical-only commits: 0
-
-## Published Changes Not in Canonical
-- C-4c319504: Implement change publication event
-- C-d89dcaf2: Add demo arithmetic functions
+Canonical commit: a34889ec1dd9ef15f3bedf6cc1500aab0df16483
+Initiated by: P-01
 
 ## Validation
-- Final canonical build: not run
-- Final canonical unit tests: not run
-- Semantic review: pending
-- Human checks: pending
+- Syntax: PASS
+- Unit tests: PASS
+- Tests discovered: 10
+- Demo: PASS
 
-## Unresolved Concerns
-- Canonical commit has not undergone final validation.
-- Semantic and human checks remain to be confirmed.
-- Current branch has 17 local-only commits.
-- 2 published changes require review.
+## Pending Published Changes
+- None detected
 
-## Finalization Decision
-**NOT READY FOR FINALIZATION**
+## Concerns Requiring Review
+- Semantic compatibility requires human review
 
-This is a candidate report, not a final result.
+## Decision
+Candidate only. Human confirmation required.
+
+This report does not declare finalization complete.
