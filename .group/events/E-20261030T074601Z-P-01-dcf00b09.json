@@ -1,0 +1,22 @@
+{
+    "protocol_version": "0.1",
+    "event_id": "E-20261030T074601Z-P-01-dcf00b09",
+    "event_type": "final_candidate",
+    "group_id": "G-01",
+    "person_id": "P-01",
+    "created_at": "2026-10-30T07:46:01Z",
+    "related_events": [],
+    "canonical_branch": "main",
+    "canonical_commit": "312e03d94bf5252ec8502bf49225950fab68ca30",
+    "candidate_report": ".group/final/candidate.md",
+    "test_evidence": {
+        "syntax": "pass",
+        "unit_tests": "pass",
+        "tests_discovered": 25,
+        "demo": "pass"
+    },
+    "known_issues": [
+        "Semantic compatibility requires human review"
+    ],
+    "summary": "Final candidate prepared for human review."
+}

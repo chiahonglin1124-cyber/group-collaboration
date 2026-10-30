@@ -2,7 +2,7 @@
 
 Group: G-01
 Canonical branch: main
-Canonical commit: d71ef6e34dbf90f978787ec4ffee031f9cd03457
+Canonical commit: 312e03d94bf5252ec8502bf49225950fab68ca30
 Initiated by: P-01
 
 ## Validation
