@@ -1751,6 +1751,159 @@ def final_confirm(person_id, confirmed=False):
     print("Publication commit:", git("rev-parse", "HEAD"))
 
 
+def start_integration(person_id, change_id):
+    from src.integration_workflow import integrate_commit
+
+    print("=== Group INT Workflow ===")
+
+    # 1. 確認整合者身分
+    member_file = MEMBERS_DIR / f"{person_id}.json"
+
+    if not member_file.is_file():
+        raise ValueError("Unknown group member.")
+
+    member = load_json(member_file)
+
+    if member.get("person_id") != person_id:
+        raise ValueError("Member identity mismatch.")
+
+    # 2. 確認位於個人工作分支
+    branch = git("branch", "--show-current")
+
+    if not branch.startswith(f"people/{person_id}/"):
+        raise ValueError(
+            "INT must run on the member's personal branch."
+        )
+
+    if git("status", "--porcelain"):
+        raise ValueError(
+            "Working tree is not clean. "
+            "Commit your changes first."
+        )
+
+    # 3. 取得遠端最新協作資訊
+    git("fetch", "origin", "--prune")
+
+    group = load_group()
+
+    refs = git(
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/remotes/origin"
+    ).splitlines()
+
+    matches = {}
+
+    # 4. 從遠端事件尋找 Change ID
+    for ref in refs:
+        paths = git(
+            "ls-tree",
+            "-r",
+            "--name-only",
+            ref,
+            "--",
+            ".group/events/"
+        ).splitlines()
+
+        for path in paths:
+            if not path.endswith(".json"):
+                continue
+
+            try:
+                raw = git("show", f"{ref}:{path}")
+                event = json.loads(raw)
+            except (RuntimeError, json.JSONDecodeError):
+                continue
+
+            if (
+                event.get("group_id") == group["group_id"]
+                and event.get("event_type") == "change_published"
+                and event.get("change_id") == change_id
+            ):
+                matches[event["event_id"]] = event
+
+    if not matches:
+        raise ValueError(
+            f"Published Change ID not found: {change_id}"
+        )
+
+    if len(matches) != 1:
+        raise ValueError(
+            "Multiple publication events found. "
+            "Manual investigation required."
+        )
+
+    target = next(iter(matches.values()))
+
+    source_branch = target["branch"]
+    source_commit = target["commit"]
+
+    if source_branch == branch:
+        raise ValueError(
+            "Cannot integrate the current branch into itself."
+        )
+
+    # 5. 驗證來源 Commit 和 Branch
+    git(
+        "cat-file",
+        "-e",
+        f"{source_commit}^{{commit}}"
+    )
+
+    check = subprocess.run(
+        [
+            "git", "merge-base", "--is-ancestor",
+            source_commit,
+            f"refs/remotes/origin/{source_branch}"
+        ],
+        cwd=ROOT,
+        capture_output=True
+    )
+
+    if check.returncode != 0:
+        raise RuntimeError(
+            "Published commit does not match its source branch."
+        )
+
+    print("\n=== Published Change ===")
+    print("Change ID:", change_id)
+    print("Author:", target["person_id"])
+    print("Summary:", target.get("summary", "N/A"))
+    print("Source branch:", source_branch)
+    print("Source commit:", source_commit)
+    print("Target branch:", branch)
+    print("Known issues:", target.get("known_issues", []))
+
+    # 6. 檢查是否已經整合
+    already = subprocess.run(
+        [
+            "git", "merge-base", "--is-ancestor",
+            source_commit, "HEAD"
+        ],
+        cwd=ROOT,
+        capture_output=True
+    )
+
+    if already.returncode == 0:
+        print("\nChange already integrated.")
+        print("No merge was necessary.")
+        return
+
+    if already.returncode != 1:
+        raise RuntimeError(
+            "Cannot determine integration history."
+        )
+
+    # 7. 交給整合工具執行 Git Merge
+    print("\nStarting guarded integration...")
+    integrate_commit(source_commit)
+
+    print("\n=== INT Follow-up ===")
+    print("Inspect git status and the merged code.")
+    print("Resolve any conflicts before committing.")
+    print("Complete semantic review.")
+    print("After verification, record integration_result.")
+
 
 
 def main():
@@ -1768,6 +1921,7 @@ def main():
         print("  test <person_id>")
         print("  int-check <change_id>")
         print("  int-verify <change_id>")
+        print("  int <person_id> <change_id>")
         print("  final-candidate <person_id>")
         print("  final-confirm <person_id>")
         return
@@ -1775,7 +1929,18 @@ def main():
     command = sys.argv[1]
 
     try:
-        if command == "final-confirm":
+        if command == "int":
+            if len(sys.argv) != 4:
+                raise ValueError(
+                    "Usage: int <person_id> <change_id>"
+                )
+
+            start_integration(
+                sys.argv[2],
+                sys.argv[3]
+            )
+
+        elif command == "final-confirm":
             if len(sys.argv) != 3:
                 raise ValueError(
                     "Usage: final-confirm <person_id>"
@@ -1783,7 +1948,6 @@ def main():
 
             person_id = sys.argv[2]
 
-            # 先檢查報告草稿是否存在
             draft_path = (
                 GROUP_DIR / "local" / "final_report_draft.md"
             )
@@ -1851,9 +2015,7 @@ def main():
 
         elif command == "test":
             if len(sys.argv) != 3:
-                raise ValueError(
-                    "Usage: test <person_id>"
-                )
+                raise ValueError("Usage: test <person_id>")
             run_tests(sys.argv[2])
 
         elif command == "review":
@@ -1862,6 +2024,7 @@ def main():
                     "Usage: review <person_id> "
                     "<change_id> <verdict> <summary>"
                 )
+
             record_review(
                 sys.argv[2],
                 sys.argv[3],
@@ -1893,6 +2056,7 @@ def main():
                 raise ValueError(
                     "Usage: finding <person_id> <summary>"
                 )
+
             create_finding(
                 sys.argv[2],
                 " ".join(sys.argv[3:])
@@ -1903,6 +2067,7 @@ def main():
                 raise ValueError(
                     "Usage: publish <person_id> <summary>"
                 )
+
             publish_change(
                 sys.argv[2],
                 " ".join(sys.argv[3:])

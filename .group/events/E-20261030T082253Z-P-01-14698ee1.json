@@ -1,0 +1,23 @@
+{
+    "protocol_version": "0.1",
+    "event_id": "E-20261030T082253Z-P-01-14698ee1",
+    "event_type": "integration_result",
+    "group_id": "G-01",
+    "person_id": "P-01",
+    "created_at": "2026-10-30T08:22:53Z",
+    "related_events": [
+        "E-20261030T081516Z-P-02-2f68da36"
+    ],
+    "change_id": "C-527c6eae",
+    "target_branch": "people/P-01/int-cli",
+    "result": "success",
+    "merge_commit": "ca1dbe1acc735cc2ce9466a454183e06aed8700f",
+    "conflicts": [],
+    "conflict_resolution_summary": "none",
+    "verification": {
+        "build": "pass",
+        "tests": "pass",
+        "semantic_review": "pass"
+    },
+    "summary": "Integrated C-527c6eae; verification result: success."
+}
