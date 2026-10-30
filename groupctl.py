@@ -1161,6 +1161,294 @@ def verify_integration(change_id):
     print("No merge or commit performed.")
 
 
+def final_candidate(person_id):
+    import re
+
+    print("=== FINAL Candidate Validation ===")
+
+    group = load_group()
+    canonical = group["canonical_branch"]
+
+    # 確認成員存在
+    member_file = MEMBERS_DIR / f"{person_id}.json"
+
+    if not member_file.exists():
+        raise ValueError("Unknown group member.")
+
+    member = load_json(member_file)
+
+    if member.get("person_id") != person_id:
+        raise ValueError("Member identity mismatch.")
+
+    # FINAL 必須以正式分支為基準
+    branch = git("branch", "--show-current")
+
+    if branch != canonical:
+        raise ValueError(
+            f"Switch to canonical branch: {canonical}"
+        )
+
+    if git("status", "--porcelain"):
+        raise ValueError("Working tree must be clean.")
+
+    git("fetch", "origin", "--prune")
+
+    commit = git("rev-parse", "HEAD")
+    remote_commit = git("rev-parse", f"origin/{canonical}")
+
+    if commit != remote_commit:
+        raise ValueError(
+            "Local and remote canonical commits differ."
+        )
+
+    print("Canonical branch:", canonical)
+    print("Canonical commit:", commit)
+
+    # 取得全部遠端協作事件
+    refs = git(
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/remotes/origin"
+    ).splitlines()
+
+    events = {}
+
+    for ref in refs:
+        paths = git(
+            "ls-tree", "-r", "--name-only",
+            ref, "--", ".group/events/"
+        ).splitlines()
+
+        for path in paths:
+            if not path.endswith(".json"):
+                continue
+
+            try:
+                event = json.loads(
+                    git("show", f"{ref}:{path}")
+                )
+            except (RuntimeError, json.JSONDecodeError):
+                continue
+
+            if event.get("group_id") != group["group_id"]:
+                continue
+
+            event_id = event.get("event_id")
+
+            if event_id:
+                events[event_id] = event
+
+    # 檢查尚未納入 main 的已發布修改
+    pending = []
+    verification_errors = []
+
+    for event in events.values():
+        if event.get("event_type") != "change_published":
+            continue
+
+        source_commit = event.get("commit")
+
+        if not source_commit:
+            verification_errors.append(
+                f"Missing commit: {event.get('change_id')}"
+            )
+            continue
+
+        result = subprocess.run(
+            [
+                "git", "merge-base", "--is-ancestor",
+                source_commit, commit
+            ],
+            cwd=ROOT,
+            capture_output=True
+        )
+
+        if result.returncode == 1:
+            pending.append(event)
+
+        elif result.returncode != 0:
+            verification_errors.append(
+                f"Cannot verify: {event.get('change_id')}"
+            )
+
+    # 執行正式 Commit 的語法檢查
+    print("\nRunning syntax checks...")
+
+    syntax = subprocess.run(
+        [
+            sys.executable,
+            "-m", "py_compile",
+            "groupctl.py", "src/demo.py"
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True
+    )
+
+    syntax_ok = syntax.returncode == 0
+
+    # 執行單元測試
+    print("Running unit tests...")
+
+    tests = subprocess.run(
+        [
+            sys.executable,
+            "-m", "unittest",
+            "discover",
+            "-s", "tests",
+            "-p", "test_*.py",
+            "-v"
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True
+    )
+
+    test_output = tests.stdout + tests.stderr
+    print(test_output)
+
+    match = re.search(r"Ran (\d+) tests?", test_output)
+    test_count = int(match.group(1)) if match else 0
+
+    tests_ok = (
+        tests.returncode == 0
+        and test_count > 0
+    )
+
+    # 執行示範功能測試
+    print("Running demo...")
+
+    demo = subprocess.run(
+        [sys.executable, "src/demo.py"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True
+    )
+
+    demo_ok = (
+        demo.returncode == 0
+        and "Sum: 8" in demo.stdout
+        and "Product: 15" in demo.stdout
+    )
+
+    # 收集可能需要人工判斷的項目
+    blockers = [
+        e for e in events.values()
+        if e.get("event_type") == "blocker"
+    ]
+
+    concerns = []
+
+    if pending:
+        concerns.append(
+            f"{len(pending)} published changes not "
+            "incorporated into canonical history"
+        )
+
+    if verification_errors:
+        concerns.extend(verification_errors)
+
+    if blockers:
+        concerns.append(
+            f"{len(blockers)} blocker events require review"
+        )
+
+    if not syntax_ok:
+        concerns.append("Python syntax check failed")
+
+    if not tests_ok:
+        concerns.append("Automated unit tests incomplete or failed")
+
+    if not demo_ok:
+        concerns.append("Demo verification failed")
+
+    concerns.append(
+        "Semantic compatibility requires human review"
+    )
+
+    # 建立候選報告
+    final_dir = GROUP_DIR / "final"
+    final_dir.mkdir(parents=True, exist_ok=True)
+
+    report_path = final_dir / "candidate.md"
+
+    lines = [
+        "# Group Final Candidate",
+        "",
+        f"Group: {group['group_id']}",
+        f"Canonical branch: {canonical}",
+        f"Canonical commit: {commit}",
+        f"Initiated by: {person_id}",
+        "",
+        "## Validation",
+        f"- Syntax: {'PASS' if syntax_ok else 'FAIL'}",
+        f"- Unit tests: {'PASS' if tests_ok else 'FAIL'}",
+        f"- Tests discovered: {test_count}",
+        f"- Demo: {'PASS' if demo_ok else 'FAIL'}",
+        "",
+        "## Pending Published Changes",
+    ]
+
+    if pending:
+        for event in pending:
+            lines.append(
+                f"- {event.get('change_id', 'unknown')}: "
+                f"{event.get('summary', 'No summary')}"
+            )
+    else:
+        lines.append("- None detected")
+
+    lines.extend([
+        "",
+        "## Concerns Requiring Review",
+    ])
+
+    for concern in concerns:
+        lines.append(f"- {concern}")
+
+    lines.extend([
+        "",
+        "## Decision",
+        "Candidate only. Human confirmation required.",
+        "",
+        "This report does not declare finalization complete."
+    ])
+
+    report_path.write_text(
+        "\n".join(lines) + "\n",
+        encoding="utf-8"
+    )
+
+    # 產生 final_candidate 協作事件
+    event_path, event = make_event(
+        "final_candidate",
+        person_id,
+        {
+            "canonical_branch": canonical,
+            "canonical_commit": commit,
+            "candidate_report": ".group/final/candidate.md",
+            "test_evidence": {
+                "syntax": "pass" if syntax_ok else "fail",
+                "unit_tests": "pass" if tests_ok else "fail",
+                "tests_discovered": test_count,
+                "demo": "pass" if demo_ok else "fail"
+            },
+            "known_issues": concerns,
+            "summary": "Final candidate prepared for human review."
+        }
+    )
+
+    print("\n=== Candidate Result ===")
+    print("Syntax:", "PASS" if syntax_ok else "FAIL")
+    print("Unit tests:", "PASS" if tests_ok else "FAIL")
+    print("Tests discovered:", test_count)
+    print("Demo:", "PASS" if demo_ok else "FAIL")
+    print("Pending changes:", len(pending))
+    print("Candidate:", report_path)
+    print("Event:", event_path)
+    print("Finalization: NOT YET CONFIRMED")
+
+
 
 def main():
     if len(sys.argv) < 2:
@@ -1177,17 +1465,24 @@ def main():
         print("  test <person_id>")
         print("  int-check <change_id>")
         print("  int-verify <change_id>")
+        print("  final-candidate <person_id>")
         return
 
     command = sys.argv[1]
 
     try:
-        if command == "int-verify":
+        if command == "final-candidate":
+            if len(sys.argv) != 3:
+                raise ValueError(
+                    "Usage: final-candidate <person_id>"
+                )
+            final_candidate(sys.argv[2])
+
+        elif command == "int-verify":
             if len(sys.argv) != 3:
                 raise ValueError(
                     "Usage: int-verify <change_id>"
                 )
-
             verify_integration(sys.argv[2])
 
         elif command == "int-check":
@@ -1195,13 +1490,13 @@ def main():
                 raise ValueError(
                     "Usage: int-check <change_id>"
                 )
-
             integration_check(sys.argv[2])
 
         elif command == "test":
             if len(sys.argv) != 3:
-                raise ValueError("Usage: test <person_id>")
-
+                raise ValueError(
+                    "Usage: test <person_id>"
+                )
             run_tests(sys.argv[2])
 
         elif command == "review":
@@ -1210,7 +1505,6 @@ def main():
                     "Usage: review <person_id> "
                     "<change_id> <verdict> <summary>"
                 )
-
             record_review(
                 sys.argv[2],
                 sys.argv[3],
@@ -1220,8 +1514,9 @@ def main():
 
         elif command == "rev":
             if len(sys.argv) != 3:
-                raise ValueError("Usage: rev <change_id>")
-
+                raise ValueError(
+                    "Usage: rev <change_id>"
+                )
             review_change(sys.argv[2])
 
         elif command == "status":
@@ -1241,7 +1536,6 @@ def main():
                 raise ValueError(
                     "Usage: finding <person_id> <summary>"
                 )
-
             create_finding(
                 sys.argv[2],
                 " ".join(sys.argv[3:])
@@ -1252,7 +1546,6 @@ def main():
                 raise ValueError(
                     "Usage: publish <person_id> <summary>"
                 )
-
             publish_change(
                 sys.argv[2],
                 " ".join(sys.argv[3:])
@@ -1264,15 +1557,10 @@ def main():
         else:
             print("Unknown command:", command)
 
-    except (
-        ValueError,
-        RuntimeError,
-        OSError
-    ) as error:
+    except (ValueError, RuntimeError, OSError) as error:
         print("Error:", error)
         sys.exit(1)
 
 
 if __name__ == "__main__":
     main()
-
