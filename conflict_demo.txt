@@ -1,3 +1,4 @@
 Project: Group Collaboration
 Feature: Calculator
-Status: Implemented by Student B
+Status: Implemented collaboratively by Student A and Student B
+Contributors: Student A, Student B
