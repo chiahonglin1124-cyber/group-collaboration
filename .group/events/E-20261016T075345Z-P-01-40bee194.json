@@ -1,0 +1,16 @@
+{
+    "protocol_version": "0.1",
+    "event_id": "E-20261016T075345Z-P-01-40bee194",
+    "event_type": "review",
+    "group_id": "G-01",
+    "person_id": "P-01",
+    "created_at": "2026-10-16T07:53:45Z",
+    "related_events": [
+        "E-20261016T072252Z-P-01-331812b9"
+    ],
+    "change_id": "C-4c319504",
+    "verdict": "needs_more_evidence",
+    "summary": "Full functional tests have not been completed",
+    "issues": [],
+    "tests_run": []
+}

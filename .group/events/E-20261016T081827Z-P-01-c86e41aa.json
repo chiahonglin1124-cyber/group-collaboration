@@ -1,0 +1,23 @@
+{
+    "protocol_version": "0.1",
+    "event_id": "E-20261016T081827Z-P-01-c86e41aa",
+    "event_type": "integration_result",
+    "group_id": "G-01",
+    "person_id": "P-01",
+    "created_at": "2026-10-16T08:18:27Z",
+    "related_events": [
+        "E-20261016T081106Z-P-02-173391e2"
+    ],
+    "change_id": "C-d89dcaf2",
+    "target_branch": "people/P-01/groupctl",
+    "result": "needs_human",
+    "merge_commit": "d53f18b22536dec193c906926960492e4ed6d913",
+    "conflicts": [],
+    "conflict_resolution_summary": "No conflicts were reported; manual confirmation required.",
+    "verification": {
+        "build": "pass",
+        "tests": "pass",
+        "semantic_review": "needs_human"
+    },
+    "summary": "Source commit incorporated. Automated checks passed; semantic review remains."
+}

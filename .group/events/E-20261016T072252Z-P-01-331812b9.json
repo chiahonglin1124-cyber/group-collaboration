@@ -1,0 +1,22 @@
+{
+    "protocol_version": "0.1",
+    "event_id": "E-20261016T072252Z-P-01-331812b9",
+    "event_type": "change_published",
+    "group_id": "G-01",
+    "person_id": "P-01",
+    "created_at": "2026-10-16T07:22:52Z",
+    "related_events": [],
+    "change_id": "C-4c319504",
+    "branch": "people/P-01/groupctl",
+    "commit": "d70474d20e17ceffcbad067239a93972badcaf53",
+    "summary": "Implement change publication event",
+    "files_changed": [
+        "groupctl.py"
+    ],
+    "interface_changes": [],
+    "tests_run": [
+        "python -m py_compile groupctl.py"
+    ],
+    "known_issues": [],
+    "proposed_for_integration": true
+}
