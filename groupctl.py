@@ -1752,6 +1752,7 @@ def final_confirm(person_id, confirmed=False):
 
 
 
+
 def main():
     if len(sys.argv) < 2:
         print("=== Group Collaboration Tool ===")
@@ -1780,7 +1781,52 @@ def main():
                     "Usage: final-confirm <person_id>"
                 )
 
-            final_confirm(sys.argv[2], confirmed=False)
+            person_id = sys.argv[2]
+
+            # 先檢查報告草稿是否存在
+            draft_path = (
+                GROUP_DIR / "local" / "final_report_draft.md"
+            )
+
+            candidate_path = (
+                GROUP_DIR / "final" / "candidate.md"
+            )
+
+            if not draft_path.is_file():
+                raise ValueError(
+                    "Final report draft not found."
+                )
+
+            if not candidate_path.is_file():
+                raise ValueError(
+                    "FINAL candidate report not found."
+                )
+
+            print("\n=== FINAL Candidate Report ===")
+            print(
+                candidate_path.read_text(encoding="utf-8")
+            )
+
+            print("\n=== Final Report Draft ===")
+            print(
+                draft_path.read_text(encoding="utf-8")
+            )
+
+            print("\n=== Human Confirmation ===")
+            print("Please review all reported limitations.")
+            print("Do not confirm if important work remains.")
+            print("This action will commit and push FINAL files.")
+            print()
+            print("Type CONFIRM FINAL to publish.")
+            print("Press Enter to cancel.")
+
+            answer = input("Confirmation: ").strip()
+
+            if answer == "CONFIRM FINAL":
+                final_confirm(person_id, confirmed=True)
+            else:
+                print("Finalization cancelled.")
+                print("No FINAL publication was requested.")
 
         elif command == "final-candidate":
             if len(sys.argv) != 3:
@@ -1805,7 +1851,9 @@ def main():
 
         elif command == "test":
             if len(sys.argv) != 3:
-                raise ValueError("Usage: test <person_id>")
+                raise ValueError(
+                    "Usage: test <person_id>"
+                )
             run_tests(sys.argv[2])
 
         elif command == "review":
@@ -1823,7 +1871,9 @@ def main():
 
         elif command == "rev":
             if len(sys.argv) != 3:
-                raise ValueError("Usage: rev <change_id>")
+                raise ValueError(
+                    "Usage: rev <change_id>"
+                )
             review_change(sys.argv[2])
 
         elif command == "status":
@@ -1861,7 +1911,11 @@ def main():
         else:
             print("Unknown command:", command)
 
-    except (ValueError, RuntimeError, OSError) as error:
+    except (
+        ValueError,
+        RuntimeError,
+        OSError
+    ) as error:
         print("Error:", error)
         sys.exit(1)
 
