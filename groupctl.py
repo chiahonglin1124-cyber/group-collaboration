@@ -1449,6 +1449,308 @@ def final_candidate(person_id):
     print("Finalization: NOT YET CONFIRMED")
 
 
+def final_confirm(person_id, confirmed=False):
+    import re
+
+    print("=== Group FINAL Confirmation ===")
+
+    if not confirmed:
+        print("Finalization requires human confirmation.")
+        print("Review the candidate and final report draft first.")
+        print("No final files were created.")
+        return
+
+    group = load_group()
+    canonical = group["canonical_branch"]
+
+    # 驗證成員
+    member_path = MEMBERS_DIR / f"{person_id}.json"
+
+    if not member_path.is_file():
+        raise ValueError("Unknown member.")
+
+    member = load_json(member_path)
+
+    if member.get("person_id") != person_id:
+        raise ValueError("Member identity mismatch.")
+
+    # 必須在正式分支
+    if git("branch", "--show-current") != canonical:
+        raise ValueError("Switch to canonical branch first.")
+
+    if git("status", "--porcelain"):
+        raise ValueError("Working tree must be clean.")
+
+    git("fetch", "origin", "--prune")
+
+    commit = git("rev-parse", "HEAD")
+    remote = git("rev-parse", f"origin/{canonical}")
+
+    if commit != remote:
+        raise ValueError("Canonical branch is not synchronized.")
+
+    # 檢查遠端已發布修改
+    refs = git(
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/remotes/origin"
+    ).splitlines()
+
+    events = {}
+
+    for ref in refs:
+        paths = git(
+            "ls-tree", "-r", "--name-only",
+            ref, "--", ".group/events/"
+        ).splitlines()
+
+        for path in paths:
+            if not path.endswith(".json"):
+                continue
+
+            try:
+                event = json.loads(git("show", f"{ref}:{path}"))
+            except (json.JSONDecodeError, RuntimeError):
+                continue
+
+            if event.get("group_id") == group["group_id"]:
+                event_id = event.get("event_id")
+                if event_id:
+                    events[event_id] = event
+
+    pending = []
+
+    for event in events.values():
+        if event.get("event_type") != "change_published":
+            continue
+
+        source_commit = event.get("commit")
+
+        if not source_commit:
+            raise ValueError("Published change has no commit.")
+
+        check = subprocess.run(
+            [
+                "git", "merge-base", "--is-ancestor",
+                source_commit, commit
+            ],
+            cwd=ROOT,
+            capture_output=True
+        )
+
+        if check.returncode == 1:
+            pending.append(event.get("change_id", "unknown"))
+        elif check.returncode != 0:
+            raise RuntimeError("Cannot verify published change.")
+
+    if pending:
+        raise ValueError(
+            "Unresolved published changes: " + ", ".join(pending)
+        )
+
+    blockers = [
+        event for event in events.values()
+        if event.get("event_type") == "blocker"
+    ]
+
+    if blockers:
+        raise ValueError(
+            "Blocker events require human resolution."
+        )
+
+    # 執行完整單元測試
+    print("\nRunning final automated tests...")
+
+    test_command = [
+        sys.executable, "-m", "unittest",
+        "discover", "-s", "tests",
+        "-p", "test_*.py", "-v"
+    ]
+
+    result = subprocess.run(
+        test_command,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace"
+    )
+
+    output = result.stdout + result.stderr
+    print(output)
+
+    match = re.search(r"Ran (\d+) tests?", output)
+    count = int(match.group(1)) if match else 0
+
+    if result.returncode != 0 or count == 0:
+        raise RuntimeError("Final automated tests failed.")
+
+    syntax = subprocess.run(
+        [
+            sys.executable, "-m", "py_compile",
+            "groupctl.py", "src/demo.py"
+        ],
+        cwd=ROOT
+    )
+
+    if syntax.returncode != 0:
+        raise RuntimeError("Final syntax check failed.")
+
+    demo = subprocess.run(
+        [sys.executable, "src/demo.py"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True
+    )
+
+    if (
+        demo.returncode != 0
+        or "Sum: 8" not in demo.stdout
+        or "Product: 15" not in demo.stdout
+    ):
+        raise RuntimeError("Final demo check failed.")
+
+    # 如實記錄未驗證的功能
+    limitations = [
+        "Complete AI-agent-driven collaboration "
+        "has not been independently verified.",
+        "INT does not yet provide one fully automated "
+        "conflict-resolution and publication workflow.",
+        "Semantic compatibility still requires "
+        "additional human review."
+    ]
+
+    status = (
+        "completed_with_known_limitations"
+        if limitations else "completed"
+    )
+
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    created_at = now.isoformat(
+        timespec="seconds"
+    ).replace("+00:00", "Z")
+
+    final_dir = GROUP_DIR / "final"
+    final_dir.mkdir(parents=True, exist_ok=True)
+
+    report_path = final_dir / "final_report.md"
+    final_json_path = final_dir / "final.json"
+
+    if report_path.exists() or final_json_path.exists():
+        raise ValueError(
+            "Final files already exist. "
+            "Do not overwrite a published result."
+        )
+
+    # 正式報告
+    report_lines = [
+        "# Group Final Report",
+        "",
+        "## Assignment",
+        "AI-assisted Git/GitHub group collaboration system.",
+        "",
+        "## Result",
+        "Python groupctl collaboration prototype,",
+        "structured events, Git integration demonstrations,",
+        "automated tests, and AGENTS.md instructions.",
+        "",
+        "## Canonical Commit",
+        f"- Branch: {canonical}",
+        f"- Commit: {commit}",
+        "",
+        "## Important Changes",
+        "- Group and member information.",
+        "- Structured collaboration event publication.",
+        "- PUB, SYNC, REV, TEST and STATUS prototypes.",
+        "- Integration checks and Git conflict demonstration.",
+        "- FINAL candidate validation.",
+        "- AI Agent instructions in AGENTS.md.",
+        "",
+        "## Validation",
+        f"- Tests passed: {count}",
+        "- Python syntax check: PASS",
+        "- Demo verification: PASS",
+        "- Published changes pending integration: 0",
+        "- Full agent workflow verification: incomplete",
+        "",
+        "## Known Limitations",
+        *[f"- {item}" for item in limitations],
+        "",
+        "## Contributors",
+        "- P-01: primary development and integration",
+        "- P-02: simulated collaborator for testing",
+        "",
+        "## Finalization",
+        f"- Initiated by: {person_id}",
+        f"- Time (UTC): {created_at}",
+        f"- Status: {status}",
+        "",
+        "This report describes the result at the",
+        "canonical commit identified above."
+    ]
+
+    report_path.write_text(
+        "\n".join(report_lines) + "\n",
+        encoding="utf-8"
+    )
+
+    # final.json
+    final_data = {
+        "protocol_version": group["protocol_version"],
+        "group_id": group["group_id"],
+        "canonical_branch": canonical,
+        "canonical_commit": commit,
+        "report_file": ".group/final/final_report.md",
+        "initiated_by": person_id,
+        "created_at": created_at,
+        "status": status,
+        "known_limitations": limitations
+    }
+
+    with open(final_json_path, "x", encoding="utf-8") as f:
+        json.dump(final_data, f, indent=4, ensure_ascii=False)
+        f.write("\n")
+
+    # final_result 協作事件
+    event_path, event = make_event(
+        "final_result",
+        person_id,
+        {
+            "canonical_branch": canonical,
+            "canonical_commit": commit,
+            "final_report": ".group/final/final_report.md",
+            "initiated_by": person_id,
+            "status": status,
+            "test_evidence": {
+                "tests_passed": count,
+                "syntax": "pass",
+                "demo": "pass"
+            },
+            "known_limitations": limitations,
+            "summary": "Group submitted with known limitations."
+        }
+    )
+
+    # 一次提交最終成果
+    git("add", str(report_path.relative_to(ROOT)))
+    git("add", str(final_json_path.relative_to(ROOT)))
+    git("add", str(event_path.relative_to(ROOT)))
+
+    git("commit", "-m", "Publish group final result")
+    git("push", "origin", canonical)
+
+    print("\n=== FINAL Published ===")
+    print("Canonical commit:", commit)
+    print("Tests passed:", count)
+    print("Status:", status)
+    print("Report:", report_path)
+    print("Final JSON:", final_json_path)
+    print("Event ID:", event["event_id"])
+    print("Publication commit:", git("rev-parse", "HEAD"))
+
+
 
 def main():
     if len(sys.argv) < 2:
@@ -1466,12 +1768,21 @@ def main():
         print("  int-check <change_id>")
         print("  int-verify <change_id>")
         print("  final-candidate <person_id>")
+        print("  final-confirm <person_id>")
         return
 
     command = sys.argv[1]
 
     try:
-        if command == "final-candidate":
+        if command == "final-confirm":
+            if len(sys.argv) != 3:
+                raise ValueError(
+                    "Usage: final-confirm <person_id>"
+                )
+
+            final_confirm(sys.argv[2], confirmed=False)
+
+        elif command == "final-candidate":
             if len(sys.argv) != 3:
                 raise ValueError(
                     "Usage: final-candidate <person_id>"
@@ -1494,9 +1805,7 @@ def main():
 
         elif command == "test":
             if len(sys.argv) != 3:
-                raise ValueError(
-                    "Usage: test <person_id>"
-                )
+                raise ValueError("Usage: test <person_id>")
             run_tests(sys.argv[2])
 
         elif command == "review":
@@ -1514,9 +1823,7 @@ def main():
 
         elif command == "rev":
             if len(sys.argv) != 3:
-                raise ValueError(
-                    "Usage: rev <change_id>"
-                )
+                raise ValueError("Usage: rev <change_id>")
             review_change(sys.argv[2])
 
         elif command == "status":
@@ -1550,9 +1857,6 @@ def main():
                 sys.argv[2],
                 " ".join(sys.argv[3:])
             )
-
-        elif command == "group":
-            show_group()
 
         else:
             print("Unknown command:", command)
