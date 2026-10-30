@@ -1,0 +1,22 @@
+{
+    "protocol_version": "0.1",
+    "event_id": "E-20261030T081222Z-P-02-722ecd2c",
+    "event_type": "change_published",
+    "group_id": "G-01",
+    "person_id": "P-02",
+    "created_at": "2026-10-30T08:12:22Z",
+    "related_events": [],
+    "change_id": "C-069060db",
+    "branch": "people/P-02/int-demo",
+    "commit": "9e1559edce8a0ffbd947bf4bc15b9b14dbad32d7",
+    "summary": "Add INT workflow demonstration",
+    "files_changed": [
+        "src/hello_int.py"
+    ],
+    "interface_changes": [],
+    "tests_run": [
+        "python -m py_compile groupctl.py"
+    ],
+    "known_issues": [],
+    "proposed_for_integration": true
+}
