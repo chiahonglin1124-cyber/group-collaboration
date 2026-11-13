@@ -1,0 +1,30 @@
+{
+    "protocol_version": "0.1",
+    "event_id": "E-20261113T070706Z-P-01-4ef24c2f",
+    "event_type": "review",
+    "group_id": "G-01",
+    "person_id": "P-01",
+    "created_at": "2026-11-13T07:07:06Z",
+    "related_events": [
+        "E-20261030T081222Z-P-02-722ecd2c"
+    ],
+    "change_id": "C-069060db",
+    "verdict": "accept_with_changes",
+    "summary": "The demo is syntactically valid and behaves as described; the full test suite and runtime smoke check pass. Add focused automated tests for greet and group_message, which are not covered by the current suite.",
+    "issues": [
+        "No focused automated tests exercise greet or group_message; add unit tests for these functions."
+    ],
+    "tests_run": [
+        "python -B -c \"import ast, pathlib; ast.parse(pathlib.Path('src/hello_int.py').read_text(encoding='utf-8')); print('Python syntax: PASS')\"",
+        "python -B -m unittest discover -s tests -p 'test_*.py'",
+        "python -B src\\hello_int.py"
+    ],
+    "evidence": [
+        "Source commit 9e1559edce8a0ffbd947bf4bc15b9b14dbad32d7 adds src/hello_int.py.",
+        "Python syntax check passed.",
+        "The repository test suite passed: 25 tests.",
+        "Runtime output: Hello, Student 1! / Group collaboration is working!",
+        "No existing test file contains a focused test for hello_int.py, greet, or group_message.",
+        "C-527c6eae commit 4a41662925df97cc425fd599d6fe83b7015b7aef only adds the C-069060db publication event."
+    ]
+}
