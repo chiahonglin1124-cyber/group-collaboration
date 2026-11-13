@@ -1,0 +1,23 @@
+{
+    "protocol_version": "0.1",
+    "event_id": "E-20261113T074605Z-P-01-01a36398",
+    "event_type": "integration_result",
+    "group_id": "G-01",
+    "person_id": "P-01",
+    "created_at": "2026-11-13T07:46:05Z",
+    "related_events": [
+        "E-20261113T071205Z-P-01-b49b03eb"
+    ],
+    "change_id": "C-9af233cb",
+    "target_branch": "people/P-01/integ-hello-int",
+    "result": "success",
+    "merge_commit": "84dc6c1e9f92a4defeecae9a2f67172d4de077a2",
+    "conflicts": [],
+    "conflict_resolution_summary": "none",
+    "verification": {
+        "build": "pass",
+        "tests": "pass",
+        "semantic_review": "pass"
+    },
+    "summary": "Integrated C-9af233cb; verification result: success."
+}
