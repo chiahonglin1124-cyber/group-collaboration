@@ -1,0 +1,21 @@
+{
+    "protocol_version": "0.1",
+    "event_id": "E-20261113T065600Z-P-01-389239cb",
+    "event_type": "review",
+    "group_id": "G-01",
+    "person_id": "P-01",
+    "created_at": "2026-11-13T06:56:00Z",
+    "related_events": [
+        "E-20261030T081516Z-P-02-2f68da36"
+    ],
+    "change_id": "C-527c6eae",
+    "verdict": "needs_more_evidence",
+    "summary": "The demo runs and the event contract passes, but the stated change purpose does not match the cited commit's event-only diff; clarify whether this review concerns metadata or the earlier C-069060db source change.",
+    "issues": [
+        "The referenced C-527c6eae commit adds only the C-069060db publication event; src/hello_int.py was added by its parent commit 9e1559edce8a0ffbd947bf4bc15b9b14dbad32d7 and is separately published as C-069060db. Clarify the review scope and correct the publication summary before treating C-527c6eae as the implementation change."
+    ],
+    "tests_run": [
+        "python -m unittest discover -s tests -p test_event_contract.py",
+        "python src/hello_int.py"
+    ]
+}
