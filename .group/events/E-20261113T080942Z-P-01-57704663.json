@@ -1,0 +1,28 @@
+{
+  "protocol_version": "0.1",
+  "event_id": "E-20261113T080942Z-P-01-57704663",
+  "event_type": "review",
+  "group_id": "G-01",
+  "person_id": "P-01",
+  "created_at": "2026-11-13T08:09:42Z",
+  "related_events": [
+    "E-20261113T071205Z-P-01-b49b03eb"
+  ],
+  "change_id": "C-9af233cb",
+  "verdict": "accept_with_changes",
+  "summary": "The added unit tests exercise both greet() and group_message() and pass in the targeted and full suites. Before accepting without qualification, strengthen the greet() test with an input other than the demo name so a hard-coded demo response cannot pass.",
+  "issues": [
+    "test_greet_includes_name uses only the demo input Student 1. A hard-coded return value of Hello, Student 1! would pass; use a different name or multiple inputs to verify greet() uses its argument."
+  ],
+  "tests_run": [
+    "python -B -m unittest discover -s tests -p \"test_hello_int.py\" (2 tests passed)",
+    "python -B -m unittest discover -s tests -p \"test_*.py\" (27 tests passed)"
+  ],
+  "evidence": [
+    "Publication event E-20261113T071205Z-P-01-b49b03eb records Change ID C-9af233cb, source branch people/P-01/test-hello-int, and Source Commit b4dfafe4ec1c377f8ec7da60d1120e42585186ab.",
+    "Git show confirms Source Commit b4dfafe4ec1c377f8ec7da60d1120e42585186ab adds only tests/test_hello_int.py; src/hello_int.py is unchanged.",
+    "The greet() test expects Hello, Student 1! for greet(\"Student 1\"); the group_message() test checks the exact collaboration message.",
+    "Targeted unittest: 2 passed. Full unittest suite: 27 passed.",
+    "The reviewed source and test files match their contents on the current integration branch."
+  ]
+}
